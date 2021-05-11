@@ -61,7 +61,7 @@ func (p WatermillPubsub) Process(ctx context.Context) {
 			continue
 		}
 
-		ev.TypeRequest.Type = "Stored Money"
+		ev.TypeRequest.Type = gateway.EventStoreMoney
 		payloadUpdated, err := json.Marshal(ev)
 		if err != nil {
 			log.Println("error marshal updated event before send back to logger: ", err)

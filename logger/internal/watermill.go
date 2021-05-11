@@ -71,14 +71,16 @@ func (p WatermillPubsub) Process(ctx context.Context) {
 			continue
 		}
 
-		if ev.TypeRequest.Type == "Stored Money" {
+		switch ev.TypeRequest.Type {
+		case gateway.EventStoreMoney:
 			log.Println("Stored Money: ", string(msg.Payload))
-			msg.Ack()
-			continue
-		}
-
-		if err := p.messenger.Publish(msg.Payload); err != nil {
-			log.Println("error sending sub event: ", err)
+		case gateway.EventInputMoney:
+			if err := p.messenger.Publish(msg.Payload); err != nil {
+				log.Println("error sending sub event: ", err)
+				continue
+			}
+		default:
+			log.Println("event not supported")
 			continue
 		}
 		msg.Ack()

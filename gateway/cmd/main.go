@@ -13,7 +13,7 @@ func main() {
 	payload := gateway.ClientRequest{
 		AccountID: "2",
 		TypeRequest: gateway.TypeRequest{
-			Type:   "Inputted Money",
+			Type:   gateway.EventInputMoney,
 			Amount: 5000,
 		},
 	}

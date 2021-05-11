@@ -13,3 +13,8 @@ type TypeRequest struct {
 type Messenger interface {
 	Publish(payload []byte) error
 }
+
+const (
+	EventInputMoney = "INPUTTED_MONEY"
+	EventStoreMoney = "STORED_MONEY"
+)
