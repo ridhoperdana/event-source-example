@@ -11,7 +11,7 @@ import (
 
 func main() {
 	payload := gateway.ClientRequest{
-		AccountID: "2",
+		AccountID: "3",
 		TypeRequest: gateway.TypeRequest{
 			Type:   gateway.EventInputMoney,
 			Amount: 5000,
