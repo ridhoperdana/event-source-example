@@ -2,7 +2,6 @@ package internal
 
 import (
 	"context"
-	"encoding/json"
 	"log"
 
 	"github.com/ThreeDotsLabs/watermill"
@@ -10,22 +9,49 @@ import (
 	"github.com/ThreeDotsLabs/watermill/message"
 	"github.com/ThreeDotsLabs/watermill/message/router/middleware"
 	"github.com/ThreeDotsLabs/watermill/message/router/plugin"
-	"github.com/ridhoperdana/event-source-example/gateway"
 	"github.com/ridhoperdana/event-source-example/logger"
 	"google.golang.org/api/option"
 )
 
-type WatermillPubsub struct {
+type BalanceWatermill struct {
 	topic        string
-	topicBalance string
 	projectID    string
-	subscription string
-	subscriber   *googlecloud.Subscriber
-	storage      logger.Storage
-	messenger    message.Publisher
+	credFilePath string
+	publisher    message.Publisher
 }
 
-func NewWatermillPubsub(projectID, topic, topicBalance, subscription, credFilePath string, storage logger.Storage) logger.Logger {
+func NewBalanceWatermill(topic, projectID, credFilePath string) BalanceWatermill {
+	publisher, err := googlecloud.NewPublisher(
+		googlecloud.PublisherConfig{
+			ProjectID: projectID,
+			ClientOptions: []option.ClientOption{
+				option.WithCredentialsFile(credFilePath),
+			},
+		},
+		watermill.NewStdLogger(true, false),
+	)
+	if err != nil {
+		log.Fatalf("error init google pubsub publisher balance service connection: %v", err)
+	}
+	return BalanceWatermill{
+		topic:        topic,
+		projectID:    projectID,
+		credFilePath: credFilePath,
+		publisher:    publisher,
+	}
+}
+
+type watermillHandler struct {
+	topic            string
+	projectID        string
+	subscription     string
+	subscriber       *googlecloud.Subscriber
+	balanceWatermill BalanceWatermill
+	loggerService    logger.Service
+}
+
+func NewWatermillHandler(projectID, topic, subscription, credFilePath string,
+	balanceService BalanceWatermill, loggerService logger.Service) logger.Logger {
 	subscriber, err := googlecloud.NewSubscriber(
 		googlecloud.SubscriberConfig{
 			ProjectID: projectID,
@@ -39,30 +65,17 @@ func NewWatermillPubsub(projectID, topic, topicBalance, subscription, credFilePa
 		log.Fatalf("error init google pubsub subscription connection: %v", err)
 	}
 
-	publisher, err := googlecloud.NewPublisher(
-		googlecloud.PublisherConfig{
-			ProjectID: projectID,
-			ClientOptions: []option.ClientOption{
-				option.WithCredentialsFile(credFilePath),
-			},
-		},
-		watermill.NewStdLogger(true, false),
-	)
-	if err != nil {
-		log.Fatalf("error init google pubsub publisher connection: %v", err)
-	}
-	return WatermillPubsub{
-		topic:        topic,
-		projectID:    projectID,
-		subscription: subscription,
-		subscriber:   subscriber,
-		storage:      storage,
-		messenger:    publisher,
-		topicBalance: topicBalance,
+	return watermillHandler{
+		topic:            topic,
+		projectID:        projectID,
+		subscription:     subscription,
+		subscriber:       subscriber,
+		balanceWatermill: balanceService,
+		loggerService:    loggerService,
 	}
 }
 
-func (p WatermillPubsub) Process(ctx context.Context) {
+func (p watermillHandler) Process(ctx context.Context) {
 	watermillLogger := watermill.NewStdLogger(true, false)
 	router, err := message.NewRouter(message.RouterConfig{}, watermillLogger)
 	if err != nil {
@@ -76,25 +89,15 @@ func (p WatermillPubsub) Process(ctx context.Context) {
 		"handler account balance",
 		p.topic,
 		p.subscriber,
-		p.topicBalance,
-		p.messenger,
+		p.balanceWatermill.topic,
+		p.balanceWatermill.publisher,
 		func(msg *message.Message) ([]*message.Message, error) {
-			log.Printf("received message: %s, payload: %s", msg.UUID, string(msg.Payload))
-			if err := p.storage.Store(ctx, msg.Payload); err != nil {
-				return nil, err
-			}
-			ev := gateway.ClientRequest{}
-			if err := json.Unmarshal(msg.Payload, &ev); err != nil {
+			updatedPayload, err := p.loggerService.Process(ctx, msg.Payload)
+			if err != nil {
 				return nil, err
 			}
 
-			switch ev.TypeRequest.Type {
-			case gateway.EventStoreMoney:
-				log.Println("Stored Money: ", string(msg.Payload))
-				return nil, nil
-			case gateway.EventInputMoney:
-			default:
-				log.Println("event not supported: ", ev.TypeRequest.Type)
+			if updatedPayload == nil || len(updatedPayload) == 0 {
 				return nil, nil
 			}
 
@@ -103,7 +106,7 @@ func (p WatermillPubsub) Process(ctx context.Context) {
 		},
 	)
 
-	if err := router.Run(ctx); err != nil {
+	if err := router.Run(context.TODO()); err != nil {
 		log.Fatalf("error running router: %v", err)
 	}
 }
