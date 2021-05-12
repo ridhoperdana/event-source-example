@@ -18,3 +18,8 @@ const (
 	EventInputMoney = "INPUTTED_MONEY"
 	EventStoreMoney = "STORED_MONEY"
 )
+
+type Account struct {
+	Balance uint64 `json:"balance"`
+	ID      string `json:"id"`
+}
