@@ -35,13 +35,23 @@ func (l loggerService) Process(ctx context.Context, payload []byte) ([]byte, err
 		Version:       latestEvent.Version + 1,
 	}
 
+	//TODO this logic should be in marketplace
+	if clientRequest.TypeRequest.Type == gateway.EventRequestedCheckout {
+		log.Println("Requested Checkout: ", string(payload))
+		snapshot, err := l.storage.GetLatestSnapshot(ctx, event.AccountID)
+		if err != nil {
+			return nil, err
+		}
+		if snapshot.Balance < event.ClientRequest.TypeRequest.Amount {
+			return nil, fmt.Errorf("cannot process checkout, balance minus")
+		}
+	}
+
 	if err := l.storage.Store(ctx, event); err != nil {
-		fmt.Println("error storing event: ", err)
 		return nil, err
 	}
 
 	if err := l.storage.StoreSnapshot(ctx, event); err != nil {
-		fmt.Println("error storing snapshot: ", err)
 		return nil, err
 	}
 
@@ -51,6 +61,10 @@ func (l loggerService) Process(ctx context.Context, payload []byte) ([]byte, err
 	case gateway.EventInputMoney:
 		log.Println("Inputted Money: ", string(payload))
 		return payload, nil
+	case gateway.EventRequestedCheckout:
+		return payload, nil
+	case gateway.EventProcessedCheckout:
+		log.Println("Processed Checkout: ", string(payload))
 	default:
 		log.Println("event not supported: ", clientRequest.TypeRequest.Type)
 	}

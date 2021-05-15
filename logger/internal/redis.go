@@ -39,6 +39,38 @@ func (r redisStorage) StoreSnapshot(ctx context.Context, latestEvent logger.Even
 		return err
 	}
 
+	if latestSnapshot.Version == 0 {
+		previousEvent, _, err := r.Fetch(ctx, logger.Filter{
+			ID: latestEvent.AccountID,
+		})
+		if err != nil {
+			return err
+		}
+
+		snapshot := logger.AccountSnapshot{
+			Account: gateway.Account{
+				ID: latestEvent.AccountID,
+			},
+			Version: latestEvent.Version,
+		}
+
+		for index, event := range previousEvent {
+			if index == 0 && event.TypeRequest.Type != gateway.EventStoreMoney {
+				return nil
+			}
+			if event.TypeRequest.Type == gateway.EventStoreMoney {
+				snapshot.Balance += event.TypeRequest.Amount
+			}
+		}
+
+		snapshotByte, err := json.Marshal(snapshot)
+		if err != nil {
+			return err
+		}
+
+		return r.Client.LPush(ctx, fmt.Sprintf("%v-snapshot", snapshot.ID), snapshotByte).Err()
+	}
+
 	if latestSnapshot.Version != latestEvent.Version && latestEvent.Version-latestSnapshot.Version != 6 {
 		log.Println("snapshot not created, version not 6")
 		return nil
@@ -66,6 +98,10 @@ func (r redisStorage) StoreSnapshot(ctx context.Context, latestEvent logger.Even
 	for _, event := range previousEvent {
 		if event.TypeRequest.Type == gateway.EventStoreMoney {
 			snapshot.Balance += event.TypeRequest.Amount
+		}
+
+		if event.TypeRequest.Type == gateway.EventProcessedCheckout {
+			snapshot.Balance -= event.TypeRequest.Amount
 		}
 	}
 

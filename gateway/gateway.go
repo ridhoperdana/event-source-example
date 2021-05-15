@@ -15,8 +15,10 @@ type Messenger interface {
 }
 
 const (
-	EventInputMoney = "INPUTTED_MONEY"
-	EventStoreMoney = "STORED_MONEY"
+	EventInputMoney        = "INPUTTED_MONEY"
+	EventStoreMoney        = "STORED_MONEY"
+	EventRequestedCheckout = "REQUESTED_CHECKOUT"
+	EventProcessedCheckout = "PROCESSED_CHECKOUT"
 )
 
 type Account struct {

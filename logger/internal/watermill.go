@@ -13,14 +13,61 @@ import (
 	"google.golang.org/api/option"
 )
 
-type BalanceWatermill struct {
-	topic        string
-	projectID    string
-	credFilePath string
-	publisher    message.Publisher
+type MarketplaceWatermill struct {
+	handlerTopic      string
+	handlerSubscriber *googlecloud.Subscriber
+	targetTopic       string
+	projectID         string
+	credFilePath      string
+	publisher         message.Publisher
 }
 
-func NewBalanceWatermill(topic, projectID, credFilePath string) BalanceWatermill {
+func NewMarketplaceWatermill(targetTopic, projectID, credFilePath, handlerTopic string) MarketplaceWatermill {
+	publisher, err := googlecloud.NewPublisher(
+		googlecloud.PublisherConfig{
+			ProjectID: projectID,
+			ClientOptions: []option.ClientOption{
+				option.WithCredentialsFile(credFilePath),
+			},
+		},
+		watermill.NewStdLogger(true, false),
+	)
+	if err != nil {
+		log.Fatalf("error init google pubsub publisher marketplace service connection: %v", err)
+	}
+
+	subscriber, err := googlecloud.NewSubscriber(
+		googlecloud.SubscriberConfig{
+			ProjectID: projectID,
+			ClientOptions: []option.ClientOption{
+				option.WithCredentialsFile(credFilePath),
+			},
+		},
+		watermill.NewStdLogger(true, false),
+	)
+	if err != nil {
+		log.Fatalf("error init google pubsub subscription marketplace connection: %v", err)
+	}
+	return MarketplaceWatermill{
+		handlerTopic:      handlerTopic,
+		handlerSubscriber: subscriber,
+		targetTopic:       targetTopic,
+		projectID:         projectID,
+		credFilePath:      credFilePath,
+		publisher:         publisher,
+	}
+}
+
+type BalanceWatermill struct {
+	handlerTopic      string
+	handlerSubscriber *googlecloud.Subscriber
+	targetTopic       string
+	projectID         string
+	credFilePath      string
+	publisher         message.Publisher
+}
+
+func NewBalanceWatermill(targetTopic, projectID, credFilePath, handlerTopic string) BalanceWatermill {
 	publisher, err := googlecloud.NewPublisher(
 		googlecloud.PublisherConfig{
 			ProjectID: projectID,
@@ -33,25 +80,7 @@ func NewBalanceWatermill(topic, projectID, credFilePath string) BalanceWatermill
 	if err != nil {
 		log.Fatalf("error init google pubsub publisher balance service connection: %v", err)
 	}
-	return BalanceWatermill{
-		topic:        topic,
-		projectID:    projectID,
-		credFilePath: credFilePath,
-		publisher:    publisher,
-	}
-}
 
-type watermillHandler struct {
-	topic            string
-	projectID        string
-	subscription     string
-	subscriber       *googlecloud.Subscriber
-	balanceWatermill BalanceWatermill
-	loggerService    logger.Service
-}
-
-func NewWatermillHandler(projectID, topic, subscription, credFilePath string,
-	balanceService BalanceWatermill, loggerService logger.Service) logger.Logger {
 	subscriber, err := googlecloud.NewSubscriber(
 		googlecloud.SubscriberConfig{
 			ProjectID: projectID,
@@ -62,16 +91,32 @@ func NewWatermillHandler(projectID, topic, subscription, credFilePath string,
 		watermill.NewStdLogger(true, false),
 	)
 	if err != nil {
-		log.Fatalf("error init google pubsub subscription connection: %v", err)
+		log.Fatalf("error init google pubsub subscription balance connection: %v", err)
 	}
+	return BalanceWatermill{
+		handlerTopic:      handlerTopic,
+		handlerSubscriber: subscriber,
+		targetTopic:       targetTopic,
+		projectID:         projectID,
+		credFilePath:      credFilePath,
+		publisher:         publisher,
+	}
+}
+
+type watermillHandler struct {
+	projectID            string
+	balanceWatermill     BalanceWatermill
+	marketPlaceWatermill MarketplaceWatermill
+	loggerService        logger.Service
+}
+
+func NewWatermillHandler(balanceService BalanceWatermill, marketPlaceWatermill MarketplaceWatermill,
+	loggerService logger.Service) logger.Logger {
 
 	return watermillHandler{
-		topic:            topic,
-		projectID:        projectID,
-		subscription:     subscription,
-		subscriber:       subscriber,
-		balanceWatermill: balanceService,
-		loggerService:    loggerService,
+		balanceWatermill:     balanceService,
+		loggerService:        loggerService,
+		marketPlaceWatermill: marketPlaceWatermill,
 	}
 }
 
@@ -87,11 +132,33 @@ func (p watermillHandler) Process(ctx context.Context) {
 
 	router.AddHandler(
 		"handler account balance",
-		p.topic,
-		p.subscriber,
-		p.balanceWatermill.topic,
+		p.balanceWatermill.handlerTopic,
+		p.balanceWatermill.handlerSubscriber,
+		p.balanceWatermill.targetTopic,
 		p.balanceWatermill.publisher,
 		func(msg *message.Message) ([]*message.Message, error) {
+			updatedPayload, err := p.loggerService.Process(ctx, msg.Payload)
+			if err != nil {
+				return nil, err
+			}
+
+			if updatedPayload == nil || len(updatedPayload) == 0 {
+				return nil, nil
+			}
+
+			newMessage := message.NewMessage(watermill.NewUUID(), msg.Payload)
+			return []*message.Message{newMessage}, nil
+		},
+	)
+
+	router.AddHandler(
+		"handler account marketplace",
+		p.marketPlaceWatermill.handlerTopic,
+		p.marketPlaceWatermill.handlerSubscriber,
+		p.marketPlaceWatermill.targetTopic,
+		p.marketPlaceWatermill.publisher,
+		func(msg *message.Message) ([]*message.Message, error) {
+			log.Println("process marketplace")
 			updatedPayload, err := p.loggerService.Process(ctx, msg.Payload)
 			if err != nil {
 				return nil, err

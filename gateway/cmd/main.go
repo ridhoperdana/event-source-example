@@ -38,10 +38,22 @@ func main() {
 		log.Fatalf("error marshal payload: %v", err)
 	}
 
-	pub := internal.NewWatermillPubSub("event-source-example", "gateway-account",
-		"pubsub-cred.json")
+	switch payload.TypeRequest.Type {
+	case gateway.EventInputMoney:
+		pub := internal.NewWatermillPubSub("event-source-example", "gateway-account",
+			"pubsub-cred.json")
 
-	if err := pub.Publish(payloadByte); err != nil {
-		log.Fatalf("error publish message: %v", err)
+		if err := pub.Publish(payloadByte); err != nil {
+			log.Fatalf("error publish message: %v", err)
+		}
+	case gateway.EventRequestedCheckout:
+		log.Println("HEREEE MARKETPLACE")
+		pub := internal.NewWatermillPubSub("event-source-example", "gateway-marketplace",
+			"pubsub-cred.json")
+
+		if err := pub.Publish(payloadByte); err != nil {
+			log.Fatalf("error publish message: %v", err)
+		}
 	}
+
 }
